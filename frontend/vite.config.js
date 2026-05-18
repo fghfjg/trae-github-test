@@ -1,0 +1,26 @@
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+import path from 'path'
+
+export default defineConfig({
+  plugins: [vue()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src')
+    }
+  },
+  server: {
+    port: 5174,
+    host: '0.0.0.0',
+    open: false,
+    cors: true,
+    proxy: {
+      '/api': {
+        target: 'https://trae-github-test-production.up.railway.app',
+        changeOrigin: true,
+        secure: false,
+        ws: true
+      }
+    }
+  }
+})
