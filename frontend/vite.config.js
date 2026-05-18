@@ -16,7 +16,7 @@ export default defineConfig({
     cors: true,
     proxy: {
       '/api': {
-        target: 'https://trae-github-test-production.up.railway.app',
+        target: 'http://localhost:3000',
         changeOrigin: true,
         secure: false,
         ws: true
