@@ -40,10 +40,6 @@ const onlineUsers = {};
 let userIdCounter = 1;
 let groupIdCounter = 1;
 
-app.get('/', (req, res) => {
-  res.json({ code: 200, message: 'Chat service is running', timestamp: new Date().toISOString() });
-});
-
 app.get('/api/health', (req, res) => {
   res.json({ code: 200, status: 'ok', onlineUsers: Object.keys(onlineUsers).length });
 });
@@ -316,11 +312,12 @@ socketIo.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 
-const distPath = path.join(__dirname, '..', 'frontend', 'dist');
+const projectRoot = path.resolve(__dirname, '..');
+const distPath = path.join(projectRoot, 'frontend', 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api')) {
+    if (!req.path.startsWith('/api') && !req.path.startsWith('/socket.io')) {
       res.sendFile(path.join(distPath, 'index.html'));
     }
   });
@@ -329,8 +326,11 @@ if (fs.existsSync(distPath)) {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   console.log('Health check: /api/health');
+  console.log('Project root:', projectRoot);
   if (fs.existsSync(distPath)) {
     console.log('Serving frontend from:', distPath);
+    const files = fs.readdirSync(distPath);
+    console.log('Dist files:', files);
   } else {
     console.log('Frontend dist not found, API only mode');
   }
