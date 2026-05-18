@@ -1,0 +1,14 @@
+{
+  "name": "cpolar-chat",
+  "version": "1.0.0",
+  "description": "Advanced chat service with groups, AI, and rich messaging",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "socket.io": "^4.7.2"
+  }
+}
