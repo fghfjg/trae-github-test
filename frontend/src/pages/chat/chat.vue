@@ -101,7 +101,7 @@
 
     <div v-if="showMessageMenu" class="message-context-menu" :style="{ top: menuPosition.y + 'px', left: menuPosition.x + 'px' }">
       <div class="menu-item" @click="copyMessage">📋 复制</div>
-      <div class="menu-item" @click="quoteMessage">↩️ 回复</div>
+      <div class="menu-item" @click="quoteMessage">️ 回复</div>
       <div class="menu-item" @click="recallMessage" v-if="canRecall(selectedMessage)">↩️ 撤回</div>
       <div class="menu-item danger" @click="deleteMessage">🗑 删除</div>
     </div>
@@ -119,7 +119,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getMessages, sendMessage as sendMsgApi, recallMessage as recallMsgApi, deleteMessage as deleteMsgApi } from '@/utils/api.js'
+import { getMessages, recallMessage as recallMsgApi, deleteMessage as deleteMsgApi, uploadFile, uploadImage } from '@/utils/api.js'
 import { getSocket } from '@/utils/socket.js'
 
 const route = useRoute()
@@ -146,6 +146,7 @@ const previewImageUrl = ref('')
 const fileInput = ref(null)
 const imageInput = ref(null)
 const typingTimeout = ref(null)
+const showTypingIndicator = ref(false)
 
 const emojis = ['😀','😂','🥰','😎','🤔','😢','😡','👍','👎','❤️','🔥','🎉','👋','🙏','💪','🤝','✨','🌟','💯','🎵','📷','📱','💻','🏠','🚗','✈️','🍕','🍔','🍺','☕','🌈','🌙','⭐','🎁','🏆','💎','📚','🎮','⚽','🏀']
 const stickers = ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🐔','🐧','🐦','🦆','🦅','🦉','🦇','🐺','🐗','🐴','🦄','🐝','🐛','🦋','🐌','🐞','🐜','🦂','🐢','🐍','🦎','🐙','🦑','🦐','🦞']
@@ -162,7 +163,7 @@ onMounted(() => {
   if (socket) {
     socket.on('receive_message', handleNewMessage)
     socket.on('message_status', handleMessageStatus)
-    socket.on('typing', handleTypingEvent)
+    socket.on('user_typing', handleTypingEvent)
     socket.on('message_recalled', handleMessageRecalled)
   }
 })
@@ -172,7 +173,7 @@ onUnmounted(() => {
   if (socket) {
     socket.off('receive_message', handleNewMessage)
     socket.off('message_status', handleMessageStatus)
-    socket.off('typing', handleTypingEvent)
+    socket.off('user_typing', handleTypingEvent)
     socket.off('message_recalled', handleMessageRecalled)
   }
   clearTimeout(typingTimeout.value)
@@ -217,18 +218,28 @@ const saveLocalMessages = () => {
   localStorage.setItem(key, JSON.stringify(messages.value.slice(-200)))
 }
 
-const handleNewMessage = async (data) => {
-  if ((data.senderId === friendId.value && data.receiverId === userId.value) ||
-      (data.senderId === userId.value && data.receiverId === friendId.value)) {
-    const newMsg = {
-      ...data,
-      status: data.senderId === userId.value ? 'delivered' : 'read'
-    }
-    messages.value.push(newMsg)
-    saveLocalMessages()
-    scrollToBottom()
+const handleNewMessage = (data) => {
+  const isRelevant = (data.senderId === friendId.value && data.receiverId === userId.value) ||
+    (data.senderId === userId.value && data.receiverId === friendId.value)
+  if (!isRelevant) return
+
+  const exists = messages.value.find(m => m.id === data.id)
+  if (exists) {
+    exists.status = data.senderId === userId.value ? 'read' : 'read'
+    return
+  }
+
+  const newMsg = {
+    ...data,
+    status: data.senderId === userId.value ? 'delivered' : 'read'
+  }
+  messages.value.push(newMsg)
+  saveLocalMessages()
+  scrollToBottom()
+
+  if (data.receiverId === userId.value) {
     const socket = getSocket()
-    if (socket && data.receiverId === userId.value) {
+    if (socket) {
       socket.emit('message_read', { messageId: data.id, senderId: data.senderId })
     }
   }
@@ -262,45 +273,33 @@ const handleMessageRecalled = (data) => {
   }
 }
 
-const sendMessage = async () => {
+const sendMessage = () => {
   if (!inputText.value.trim()) return
   const content = inputText.value.trim()
-  const tempId = Date.now()
+  const msgId = Date.now() + Math.random()
   const tempMsg = {
-    id: tempId,
+    id: msgId,
     senderId: userId.value,
     receiverId: friendId.value,
     content,
-    type: 'text',
+    messageType: 'text',
+    mediaUrl: '',
+    replyTo: quotingMessage.value ? quotingMessage.value.id : null,
+    recalled: false,
+    read: false,
     status: 'sending',
-    createdAt: new Date().toISOString(),
-    quote: quotingMessage.value ? quotingMessage.value.content : null,
-    quoteId: quotingMessage.value ? quotingMessage.value.id : null
+    createdAt: new Date().toISOString()
   }
   messages.value.push(tempMsg)
   inputText.value = ''
   quotingMessage.value = null
   showEmoji.value = false
   scrollToBottom()
+  saveLocalMessages()
 
-  try {
-    const res = await sendMsgApi(userId.value, friendId.value, content, 'text')
-    if (res.code === 200) {
-      const idx = messages.value.findIndex(m => m.id === tempId)
-      if (idx !== -1) {
-        messages.value[idx] = { ...res.data, status: 'sent', quote: tempMsg.quote, quoteId: tempMsg.quoteId }
-      }
-      saveLocalMessages()
-      const socket = getSocket()
-      if (socket) {
-        socket.emit('send_message', { ...res.data, quote: tempMsg.quote, quoteId: tempMsg.quoteId })
-      }
-    }
-  } catch (error) {
-    const idx = messages.value.findIndex(m => m.id === tempId)
-    if (idx !== -1) {
-      messages.value[idx].status = 'failed'
-    }
+  const socket = getSocket()
+  if (socket) {
+    socket.emit('send_message', tempMsg)
   }
 }
 
@@ -394,7 +393,7 @@ const canRecall = (msg) => {
   return elapsed < 120
 }
 
-const showMessageMenuHandler = (msg, event) => {
+const showMessageMenu = (msg, event) => {
   selectedMessage.value = msg
   menuPosition.value = { x: event.clientX, y: event.clientY }
   showMessageMenu.value = true
@@ -464,40 +463,58 @@ const triggerImageUpload = () => {
 const handleFileUpload = async (event) => {
   const file = event.target.files[0]
   if (!file) return
-  messages.value.push({
-    id: Date.now(),
-    senderId: userId.value,
-    receiverId: friendId.value,
-    content: '[File]',
-    type: 'file',
-    fileName: file.name,
-    fileSize: file.size,
-    status: 'sent',
-    createdAt: new Date().toISOString()
-  })
-  saveLocalMessages()
-  scrollToBottom()
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('userId', userId.value)
+  formData.append('receiverId', friendId.value)
+  try {
+    const res = await uploadFile(formData)
+    if (res.code === 200) {
+      messages.value.push({
+        id: Date.now(),
+        senderId: userId.value,
+        receiverId: friendId.value,
+        content: res.data.url,
+        type: 'file',
+        fileName: file.name,
+        fileSize: file.size,
+        status: 'sent',
+        createdAt: new Date().toISOString()
+      })
+      saveLocalMessages()
+      scrollToBottom()
+    }
+  } catch (error) {
+    alert(error.message || '上传文件失败')
+  }
   event.target.value = ''
 }
 
 const handleImageUpload = async (event) => {
   const file = event.target.files[0]
   if (!file) return
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    messages.value.push({
-      id: Date.now(),
-      senderId: userId.value,
-      receiverId: friendId.value,
-      content: e.target.result,
-      type: 'image',
-      status: 'sent',
-      createdAt: new Date().toISOString()
-    })
-    saveLocalMessages()
-    scrollToBottom()
+  const formData = new FormData()
+  formData.append('image', file)
+  formData.append('userId', userId.value)
+  formData.append('receiverId', friendId.value)
+  try {
+    const res = await uploadImage(formData)
+    if (res.code === 200) {
+      messages.value.push({
+        id: Date.now(),
+        senderId: userId.value,
+        receiverId: friendId.value,
+        content: res.data.url,
+        type: 'image',
+        status: 'sent',
+        createdAt: new Date().toISOString()
+      })
+      saveLocalMessages()
+      scrollToBottom()
+    }
+  } catch (error) {
+    alert(error.message || '上传图片失败')
   }
-  reader.readAsDataURL(file)
   event.target.value = ''
 }
 
@@ -506,7 +523,7 @@ const insertEmoji = (emoji) => {
 }
 
 const playVoice = (msg) => {
-  alert('语音播放功能开发中')
+  alert('语音播放：' + msg.duration + '秒')
 }
 
 const goBack = () => {
@@ -583,25 +600,22 @@ const goBack = () => {
 }
 .search-results {
   margin-top: 8px;
-  max-height: 200px;
+  max-height: 150px;
   overflow-y: auto;
 }
 .search-item {
-  display: flex;
-  align-items: center;
   padding: 8px 12px;
-  background: var(--bg-card);
+  background: var(--bg-input);
   border-radius: 8px;
   margin-bottom: 4px;
   cursor: pointer;
-  color: var(--text-primary);
-}
-.search-item:hover {
-  background: var(--bg-hover);
+  display: flex;
+  justify-content: space-between;
 }
 .search-item-text {
-  flex: 1;
   font-size: 13px;
+  color: var(--text-primary);
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -609,6 +623,7 @@ const goBack = () => {
 .search-item-time {
   font-size: 11px;
   color: var(--text-muted);
+  margin-left: 10px;
 }
 .messages {
   flex: 1;
@@ -631,6 +646,7 @@ const goBack = () => {
   font-size: 16px;
   color: var(--text-secondary);
   display: block;
+  margin-bottom: 4px;
 }
 .empty-tip {
   font-size: 12px;
@@ -664,92 +680,38 @@ const goBack = () => {
   opacity: 0.6;
   font-size: 13px;
 }
-.image-msg {
-  max-width: 200px;
-  border-radius: 12px;
-  overflow: hidden;
-}
-.image-msg img {
-  width: 100%;
-  display: block;
-}
-.file-msg {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(0,0,0,0.1);
-  padding: 8px 12px;
-  border-radius: 8px;
-}
-.file-icon {
-  font-size: 20px;
-}
-.file-info {
-  flex: 1;
-}
-.file-name {
-  font-size: 13px;
-  font-weight: 500;
-  display: block;
-}
-.file-size {
-  font-size: 11px;
-  opacity: 0.7;
-}
-.file-download {
-  font-size: 18px;
-  color: inherit;
-}
-.voice-msg {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.voice-play-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.2);
-  border: none;
-  color: inherit;
-  cursor: pointer;
-}
-.voice-waveform {
-  display: flex;
-  gap: 2px;
-  align-items: center;
-}
-.wave-bar {
-  width: 3px;
-  background: currentColor;
-  opacity: 0.6;
-  border-radius: 2px;
-}
-.voice-duration {
-  font-size: 12px;
-  opacity: 0.8;
-}
 .text-msg {
   font-size: 14px;
   line-height: 1.5;
 }
+.msg-content {
+  word-wrap: break-word;
+}
+.msg-content a {
+  color: #fff;
+  text-decoration: underline;
+}
+.received .msg-content a {
+  color: var(--primary);
+}
 .quote-msg {
+  background: rgba(255,255,255,0.15);
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin-bottom: 6px;
   font-size: 12px;
-  opacity: 0.7;
-  padding: 4px 8px;
-  border-left: 2px solid currentColor;
-  margin-bottom: 4px;
   cursor: pointer;
+  border-left: 3px solid rgba(255,255,255,0.5);
+}
+.received .quote-msg {
+  background: var(--bg-input);
+  border-left-color: var(--primary);
 }
 .quote-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   display: block;
-}
-.msg-content {
-  font-size: 14px;
-  line-height: 1.5;
 }
 .msg-footer {
   display: flex;
@@ -765,45 +727,119 @@ const goBack = () => {
 .msg-status {
   font-size: 12px;
 }
+.image-msg {
+  cursor: pointer;
+  border-radius: 12px;
+  overflow: hidden;
+  max-width: 250px;
+}
+.image-msg img {
+  width: 100%;
+  display: block;
+  border-radius: 12px;
+}
+.file-msg {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255,255,255,0.1);
+  padding: 10px;
+  border-radius: 10px;
+}
+.received .file-msg {
+  background: var(--bg-input);
+}
+.file-icon {
+  font-size: 24px;
+}
+.file-info {
+  flex: 1;
+  min-width: 0;
+}
+.file-name {
+  font-size: 13px;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-size {
+  font-size: 11px;
+  opacity: 0.7;
+}
+.file-download {
+  font-size: 18px;
+  color: inherit;
+  text-decoration: none;
+}
+.voice-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.voice-play-btn {
+  background: rgba(255,255,255,0.2);
+  border: none;
+  color: inherit;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+}
+.voice-waveform {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+}
+.wave-bar {
+  width: 3px;
+  background: currentColor;
+  opacity: 0.5;
+  border-radius: 2px;
+}
+.voice-duration {
+  font-size: 12px;
+  opacity: 0.7;
+}
 .typing-indicator {
   align-self: flex-start;
-}
-.typing-dots {
-  display: flex;
-  gap: 4px;
   padding: 10px 14px;
   background: var(--bg-card);
   border-radius: 16px;
   border: 1px solid var(--border);
 }
 .typing-dots span {
+  display: inline-block;
   width: 8px;
   height: 8px;
-  background: var(--text-muted);
   border-radius: 50%;
+  background: var(--text-muted);
+  margin: 0 2px;
   animation: typing 1.4s infinite;
 }
-.typing-dots span:nth-child(2) {
-  animation-delay: 0.2s;
-}
-.typing-dots span:nth-child(3) {
-  animation-delay: 0.4s;
-}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
 @keyframes typing {
   0%, 60%, 100% { transform: translateY(0); }
-  30% { transform: translateY(-10px); }
+  30% { transform: translateY(-6px); }
 }
 .quote-preview {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 8px 15px;
   background: var(--bg-card);
   border-top: 1px solid var(--border);
+  gap: 10px;
 }
 .quote-preview-text {
+  flex: 1;
   font-size: 13px;
   color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .quote-cancel {
   background: none;
@@ -855,7 +891,7 @@ const goBack = () => {
 .emoji-panel {
   background: var(--bg-card);
   border-top: 1px solid var(--border);
-  max-height: 200px;
+  max-height: 250px;
   overflow-y: auto;
 }
 .emoji-tabs {
@@ -864,10 +900,10 @@ const goBack = () => {
 }
 .emoji-tab {
   flex: 1;
-  padding: 8px;
+  padding: 10px;
   border: none;
   background: none;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-secondary);
   cursor: pointer;
   border-bottom: 2px solid transparent;
@@ -888,22 +924,24 @@ const goBack = () => {
   text-align: center;
   padding: 4px;
   border-radius: 8px;
+  transition: background 0.2s;
 }
 .emoji-item:hover {
   background: var(--bg-hover);
 }
 .sticker-grid {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 8px;
   padding: 12px;
 }
 .sticker-item {
-  font-size: 28px;
+  font-size: 32px;
   cursor: pointer;
   text-align: center;
-  padding: 4px;
+  padding: 8px;
   border-radius: 8px;
+  transition: background 0.2s;
 }
 .sticker-item:hover {
   background: var(--bg-hover);
@@ -911,17 +949,19 @@ const goBack = () => {
 .message-context-menu {
   position: fixed;
   background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 4px 20px var(--shadow);
-  padding: 8px 0;
-  z-index: 999;
-  min-width: 120px;
+  z-index: 1000;
+  min-width: 140px;
+  overflow: hidden;
 }
 .menu-item {
-  padding: 10px 16px;
+  padding: 12px 16px;
   font-size: 14px;
-  cursor: pointer;
   color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.2s;
 }
 .menu-item:hover {
   background: var(--bg-hover);
@@ -934,9 +974,10 @@ const goBack = () => {
   top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(0,0,0,0.9);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  z-index: 999;
+  z-index: 1000;
 }
 .image-preview img {
   max-width: 90%;
@@ -944,10 +985,9 @@ const goBack = () => {
   border-radius: 8px;
 }
 .preview-actions {
-  position: absolute;
-  bottom: 30px;
   display: flex;
-  gap: 16px;
+  gap: 12px;
+  margin-top: 20px;
 }
 .preview-btn {
   padding: 10px 20px;
@@ -958,5 +998,15 @@ const goBack = () => {
   font-size: 14px;
   cursor: pointer;
   text-decoration: none;
+}
+.preview-btn:hover {
+  background: rgba(255,255,255,0.3);
+}
+.highlight {
+  animation: highlight 2s ease;
+}
+@keyframes highlight {
+  0%, 100% { background: transparent; }
+  50% { background: rgba(102, 126, 234, 0.3); }
 }
 </style>
