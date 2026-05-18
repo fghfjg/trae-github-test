@@ -97,3 +97,33 @@ export function dissolveGroup(groupId, userId) {
 export function getGroupMessages(groupId) {
   return request(`/groups/${groupId}/messages`, 'GET')
 }
+
+export function sendGroupMessage(groupId, userId, content, type) {
+  return request(`/groups/${groupId}/messages`, 'POST', { userId, content, type })
+}
+
+export function sendMessage(userId, receiverId, content, type) {
+  return request('/messages', 'POST', { userId, receiverId, content, type })
+}
+
+export function deleteMessage(userId, messageId) {
+  return request('/messages/delete', 'POST', { userId, messageId })
+}
+
+export function uploadFile(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return fetch(getBaseUrl() + '/upload/file', {
+    method: 'POST',
+    body: formData
+  }).then(res => res.json())
+}
+
+export function uploadImage(file) {
+  const formData = new FormData()
+  formData.append('image', file)
+  return fetch(getBaseUrl() + '/upload/image', {
+    method: 'POST',
+    body: formData
+  }).then(res => res.json())
+}
