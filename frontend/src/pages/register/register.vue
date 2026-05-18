@@ -4,16 +4,19 @@
       <div class="logo">📝</div>
       <h1 class="title">注册账号</h1>
       <div class="form-group">
-        <input class="input" v-model="username" placeholder="用户名" />
+        <input class="input" v-model="username" placeholder="用户名（至少2个字符）" />
+        <span v-if="usernameError" class="error-text">{{ usernameError }}</span>
       </div>
       <div class="form-group">
         <input class="input" v-model="nickname" placeholder="昵称（可选）" />
       </div>
       <div class="form-group">
-        <input class="input" type="password" v-model="password" placeholder="密码" />
+        <input class="input" type="password" v-model="password" placeholder="密码（至少4个字符）" />
+        <span v-if="passwordError" class="error-text">{{ passwordError }}</span>
       </div>
       <div class="form-group">
         <input class="input" type="password" v-model="confirmPassword" placeholder="确认密码" @keyup.enter="handleRegister" />
+        <span v-if="confirmError" class="error-text">{{ confirmError }}</span>
       </div>
       <button class="btn-primary" @click="handleRegister" :disabled="loading">
         {{ loading ? '注册中...' : '注册' }}
@@ -36,25 +39,58 @@ const nickname = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 const loading = ref(false)
+const usernameError = ref('')
+const passwordError = ref('')
+const confirmError = ref('')
+
+// 表单校验
+const validateForm = () => {
+  usernameError.value = ''
+  passwordError.value = ''
+  confirmError.value = ''
+  let valid = true
+
+  if (!username.value.trim()) {
+    usernameError.value = '请输入用户名'
+    valid = false
+  } else if (username.value.trim().length < 2) {
+    usernameError.value = '用户名至少2个字符'
+    valid = false
+  }
+
+  if (!password.value.trim()) {
+    passwordError.value = '请输入密码'
+    valid = false
+  } else if (password.value.trim().length < 4) {
+    passwordError.value = '密码至少4个字符'
+    valid = false
+  }
+
+  if (password.value !== confirmPassword.value) {
+    confirmError.value = '两次输入的密码不一致'
+    valid = false
+  }
+
+  return valid
+}
 
 const handleRegister = async () => {
-  if (!username.value.trim() || !password.value.trim()) {
-    alert('请输入用户名和密码')
-    return
-  }
-  if (password.value !== confirmPassword.value) {
-    alert('两次输入的密码不一致')
-    return
-  }
+  if (!validateForm()) return
+
   loading.value = true
   try {
-    const res = await register(username.value.trim(), password.value.trim(), nickname.value.trim())
+    const res = await register(username.value.trim(), password.value.trim(), nickname.value.trim() || username.value.trim())
     if (res.code === 200) {
       alert('注册成功！请登录')
       router.push('/login')
     }
   } catch (error) {
-    alert(error.message || '注册失败')
+    // 根据后端返回的错误信息给出友好提示
+    if (error.message && error.message.includes('already exists')) {
+      alert('该用户名已被注册，请换一个')
+    } else {
+      alert(error.message || '注册失败，请检查网络后重试')
+    }
   } finally {
     loading.value = false
   }
@@ -95,6 +131,7 @@ const goToLogin = () => {
 }
 .form-group {
   margin-bottom: 16px;
+  position: relative;
 }
 .input {
   width: 100%;
@@ -107,9 +144,16 @@ const goToLogin = () => {
   color: var(--text-primary);
   outline: none;
   transition: border-color 0.2s;
+  box-sizing: border-box;
 }
 .input:focus {
   border-color: var(--primary);
+}
+.error-text {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #ff3b30;
 }
 .btn-primary {
   width: 100%;

@@ -18,7 +18,8 @@
         <div :class="['message', msg.senderId === userId ? 'sent' : 'received']">
           <div v-if="msg.senderId !== userId" class="sender-name">{{ getSenderName(msg.senderId) }}</div>
           <div v-if="msg.recalled" class="recalled-msg">消息已撤回</div>
-          <div v-else class="msg-content" v-html="formatMessage(msg.content)"></div>
+          <div v-else-if="msg.deleted" class="recalled-msg">消息已删除</div>
+          <div v-else class="msg-content">{{ msg.content }}</div>
           <div class="msg-footer">
             <span class="msg-time">{{ formatTime(msg.createdAt) }}</span>
           </div>
@@ -61,7 +62,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getGroupMessages, sendGroupMessage, updateGroup } from '@/utils/api.js'
+import { getGroupMessages, updateGroup } from '@/utils/api.js'
 import { getSocket } from '@/utils/socket.js'
 
 const route = useRoute()
@@ -89,14 +90,14 @@ onMounted(() => {
   loadMessages()
   const socket = getSocket()
   if (socket) {
-    socket.on('group_message', handleNewMessage)
+    socket.on('receive_message', handleNewMessage)
   }
 })
 
 onUnmounted(() => {
   const socket = getSocket()
   if (socket) {
-    socket.off('group_message', handleNewMessage)
+    socket.off('receive_message', handleNewMessage)
   }
 })
 
@@ -107,11 +108,13 @@ const loadMessages = async () => {
       messages.value = res.data.messages || []
       memberCount.value = res.data.members?.length || 0
       res.data.members?.forEach(m => {
-        senderNames.value[m.userId] = m.nickname || m.username
+        const u = typeof m === 'number' ? { userId: m } : m
+        senderNames.value[u.userId] = u.nickname || u.username || '用户'
       })
       scrollToBottom()
     }
   } catch (error) {
+    console.error('[GroupChat] 加载消息失败:', error)
   }
 }
 
@@ -123,8 +126,11 @@ const handleNewMessage = (data) => {
 }
 
 const sendMessage = async () => {
-  if (!inputText.value.trim()) return
   const content = inputText.value.trim()
+  if (!content) {
+    alert('请输入消息内容')
+    return
+  }
   const tempMsg = {
     id: Date.now(),
     senderId: userId.value,
@@ -138,14 +144,17 @@ const sendMessage = async () => {
   scrollToBottom()
 
   try {
-    const res = await sendGroupMessage(userId.value, groupId.value, content)
-    if (res.code === 200) {
-      const socket = getSocket()
-      if (socket) {
-        socket.emit('send_group_message', res.data)
-      }
+    const socket = getSocket()
+    if (socket) {
+      socket.emit('send_group_message', JSON.stringify({
+        senderId: userId.value,
+        groupId: groupId.value,
+        content,
+        type: 'text'
+      }))
     }
   } catch (error) {
+    console.error('[GroupChat] 发送消息失败:', error)
   }
 }
 
@@ -155,15 +164,6 @@ const insertEmoji = (emoji) => {
 
 const getSenderName = (senderId) => {
   return senderNames.value[senderId] || '用户'
-}
-
-const formatMessage = (content) => {
-  if (!content) return ''
-  let html = content
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
-  html = html.replace(/\n/g, '<br>')
-  return html
 }
 
 const formatTime = (dateStr) => {
@@ -182,10 +182,11 @@ const scrollToBottom = () => {
 
 const saveGroupSettings = async () => {
   try {
-    const res = await updateGroup(groupId.value, userId.value, editGroupName.value, editAnnouncement.value)
+    const res = await updateGroup(groupId.value, { name: editGroupName.value, announcement: editAnnouncement.value })
     if (res.code === 200) {
       groupName.value = editGroupName.value
       showGroupSettings.value = false
+      alert('群设置已保存')
     }
   } catch (error) {
     alert(error.message || '保存设置失败')
@@ -409,45 +410,52 @@ const goBack = () => {
 }
 .setting-input {
   width: 100%;
-  height: 40px;
+  height: 36px;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 0 12px;
-  font-size: 14px;
+  padding: 0 10px;
+  font-size: 13px;
   color: var(--text-primary);
   outline: none;
+  box-sizing: border-box;
 }
 .setting-textarea {
   width: 100%;
-  height: 80px;
+  height: 60px;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 14px;
+  padding: 8px 10px;
+  font-size: 13px;
   color: var(--text-primary);
   outline: none;
   resize: none;
+  box-sizing: border-box;
 }
 .modal-btns {
   display: flex;
   gap: 10px;
-}
-.btn-cancel, .btn-confirm {
-  flex: 1;
-  height: 40px;
-  border-radius: 10px;
-  font-size: 14px;
-  border: none;
-  cursor: pointer;
+  margin-top: 16px;
 }
 .btn-cancel {
+  flex: 1;
+  height: 40px;
+  border: 1px solid var(--border);
   background: var(--bg-input);
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
 }
 .btn-confirm {
+  flex: 1;
+  height: 40px;
   background: linear-gradient(135deg, #f093fb, #f5576c);
   color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
 }
 </style>
