@@ -267,7 +267,7 @@ socketIo.on('connection', (socket) => {
   socket.on('send_message', (data) => {
     const { senderId, receiverId, content, messageType, mediaUrl, replyTo, groupId } = data;
     const message = {
-      id: Date.now() + Math.random(),
+      id: data.id || (Date.now() + Math.random()),
       senderId: parseInt(senderId),
       receiverId: receiverId ? parseInt(receiverId) : null,
       groupId: groupId ? parseInt(groupId) : null,
@@ -285,7 +285,7 @@ socketIo.on('connection', (socket) => {
       if (group) {
         group.members.forEach(mid => {
           const sid = onlineUsers[mid];
-          if (sid && mid !== parseInt(senderId)) socketIo.to(sid).emit('receive_message', message);
+          if (sid) socketIo.to(sid).emit('receive_message', message);
         });
       }
     } else if (receiverId) {
