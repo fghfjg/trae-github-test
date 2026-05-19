@@ -497,21 +497,22 @@ const goToSettings = () => {
   font-size: 20px;
   color: var(--text-muted);
 }
+
 .ai-panel {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 120px);
 }
 .ai-header {
+  display: flex;
+  align-items: center;
   padding: 15px;
-  text-align: center;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
 }
 .ai-icon {
-  font-size: 32px;
-  display: block;
-  margin-bottom: 5px;
+  font-size: 24px;
+  margin-right: 10px;
 }
 .ai-title {
   font-size: 16px;
@@ -524,16 +525,18 @@ const goToSettings = () => {
   padding: 10px 15px;
   overflow-x: auto;
   background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
 }
 .ai-mode-btn {
-  padding: 6px 12px;
+  padding: 6px 14px;
+  border-radius: 20px;
   border: 1px solid var(--border);
-  border-radius: 16px;
   background: var(--bg-input);
   color: var(--text-secondary);
   font-size: 12px;
-  white-space: nowrap;
   cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
 }
 .ai-mode-btn.active {
   background: var(--primary);
@@ -544,64 +547,55 @@ const goToSettings = () => {
   flex: 1;
   overflow-y: auto;
   padding: 15px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 .ai-msg {
-  max-width: 80%;
+  margin-bottom: 12px;
+  display: flex;
 }
 .ai-user {
-  align-self: flex-end;
+  justify-content: flex-end;
 }
 .ai-bot {
-  align-self: flex-start;
+  justify-content: flex-start;
 }
 .ai-msg-bubble {
+  max-width: 80%;
   padding: 10px 14px;
-  border-radius: 16px;
+  border-radius: 12px;
   font-size: 14px;
   line-height: 1.5;
+  word-wrap: break-word;
 }
 .ai-user .ai-msg-bubble {
   background: linear-gradient(135deg, #667eea, #764ba2);
   color: #fff;
-  border-bottom-right-radius: 4px;
 }
 .ai-bot .ai-msg-bubble {
   background: var(--bg-card);
   color: var(--text-primary);
   border: 1px solid var(--border);
-  border-bottom-left-radius: 4px;
-}
-.typing-indicator {
-  display: flex;
-  gap: 4px;
-  padding: 10px 14px;
 }
 .typing-indicator span {
+  display: inline-block;
   width: 8px;
   height: 8px;
-  background: var(--text-muted);
   border-radius: 50%;
+  background: var(--text-muted);
+  margin: 0 2px;
   animation: typing 1.4s infinite;
 }
-.typing-indicator span:nth-child(2) {
-  animation-delay: 0.2s;
-}
-.typing-indicator span:nth-child(3) {
-  animation-delay: 0.4s;
-}
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
 @keyframes typing {
   0%, 60%, 100% { transform: translateY(0); }
-  30% { transform: translateY(-10px); }
+  30% { transform: translateY(-6px); }
 }
 .ai-input-area {
   display: flex;
-  gap: 8px;
   padding: 10px 15px;
   background: var(--bg-card);
   border-top: 1px solid var(--border);
+  gap: 8px;
 }
 .ai-input {
   flex: 1;
@@ -624,6 +618,7 @@ const goToSettings = () => {
   font-size: 14px;
   cursor: pointer;
 }
+
 .modal {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
@@ -649,15 +644,15 @@ const goToSettings = () => {
 }
 .modal-input {
   width: 100%;
-  height: 40px;
+  height: 44px;
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0 12px;
+  border-radius: 10px;
+  padding: 0 14px;
   font-size: 14px;
   color: var(--text-primary);
-  outline: none;
   margin-bottom: 12px;
+  outline: none;
 }
 .modal-btns {
   display: flex;
