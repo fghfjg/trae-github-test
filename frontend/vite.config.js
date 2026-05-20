@@ -22,6 +22,5 @@ export default defineConfig({
         ws: true
       }
     }
-  },
-  base: '/app/'
+  }
 })
