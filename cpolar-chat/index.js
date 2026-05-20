@@ -16,11 +16,11 @@ const socketIo = new Server(server, {
     credentials: true
   },
   transports: ['websocket', 'polling'],
-  pingTimeout: 60000,
-  pingInterval: 25000
+  pingTimeout: 120000,
+  pingInterval: 30000,
+  upgradeTimeout: 10000
 });
 
-// 跨域配置：兼容本地开发和Railway生产环境
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -35,7 +35,6 @@ function generateToken(userId) {
   return crypto.createHmac('sha256', JWT_SECRET).update(String(userId) + Date.now()).digest('hex');
 }
 
-// 数据存储
 const users = {};
 const messages = [];
 const groups = {};
@@ -45,12 +44,14 @@ let userIdCounter = 1;
 let groupIdCounter = 1;
 let messageIdCounter = 1;
 
-// 健康检测接口
 app.get('/api/health', (req, res) => {
-  res.json({ code: 200, status: 'ok', onlineUsers: Object.keys(onlineUsers).length });
+  let onlineCount = 0;
+  Object.values(onlineUsers).forEach(sockets => {
+    onlineCount += sockets.length;
+  });
+  res.json({ code: 200, status: 'ok', onlineUsers: onlineCount });
 });
 
-// 注册接口：限制重复注册
 app.post('/api/register', (req, res) => {
   try {
     const { username, password, nickname, avatar } = req.body;
@@ -78,7 +79,6 @@ app.post('/api/register', (req, res) => {
   }
 });
 
-// 登录接口
 app.post('/api/login', (req, res) => {
   try {
     const { username, password } = req.body;
@@ -93,18 +93,17 @@ app.post('/api/login', (req, res) => {
   }
 });
 
-// 获取用户信息
 app.get('/api/user/:userId', (req, res) => {
   try {
     const user = users[parseInt(req.params.userId)];
     if (!user) return res.status(404).json({ code: 404, message: 'User not found' });
-    res.json({ code: 200, data: { userId: user.userId, username: user.username, nickname: user.nickname, avatar: user.avatar, signature: user.signature, status: user.status, isOnline: !!onlineUsers[user.userId] } });
+    const isOnline = onlineUsers[user.userId] && onlineUsers[user.userId].length > 0;
+    res.json({ code: 200, data: { userId: user.userId, username: user.username, nickname: user.nickname, avatar: user.avatar, signature: user.signature, status: user.status, isOnline } });
   } catch (error) {
     res.status(500).json({ code: 500, message: 'Internal server error' });
   }
 });
 
-// 更新用户信息
 app.put('/api/user/:userId', (req, res) => {
   try {
     const user = users[parseInt(req.params.userId)];
@@ -120,14 +119,14 @@ app.put('/api/user/:userId', (req, res) => {
   }
 });
 
-// 获取好友列表
 app.get('/api/friends/:userId', (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
     const data = friendships[userId] || { friends: [], groups: [], blacklist: [] };
     const friendsWithStatus = data.friends.map(fId => {
       const u = users[fId];
-      return u ? { id: u.userId, username: u.username, nickname: u.nickname, avatar: u.avatar, status: u.status, isOnline: !!onlineUsers[fId] } : null;
+      const isOnline = onlineUsers[fId] && onlineUsers[fId].length > 0;
+      return u ? { id: u.userId, username: u.username, nickname: u.nickname, avatar: u.avatar, status: u.status, isOnline } : null;
     }).filter(Boolean);
     res.json({ code: 200, data: { friends: friendsWithStatus, groups: data.groups, blacklist: data.blacklist } });
   } catch (error) {
@@ -135,7 +134,6 @@ app.get('/api/friends/:userId', (req, res) => {
   }
 });
 
-// 添加好友
 app.post('/api/friends/add', (req, res) => {
   try {
     const { userId, friendUsername } = req.body;
@@ -154,7 +152,6 @@ app.post('/api/friends/add', (req, res) => {
   }
 });
 
-// 删除好友
 app.delete('/api/friends/:userId/:friendId', (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
@@ -169,7 +166,6 @@ app.delete('/api/friends/:userId/:friendId', (req, res) => {
   }
 });
 
-// 加入黑名单
 app.post('/api/friends/blacklist', (req, res) => {
   try {
     const { userId, targetId } = req.body;
@@ -182,7 +178,6 @@ app.post('/api/friends/blacklist', (req, res) => {
   }
 });
 
-// 获取历史聊天记录
 app.get('/api/messages/:userId1/:userId2', (req, res) => {
   try {
     const { userId1, userId2 } = req.params;
@@ -196,7 +191,6 @@ app.get('/api/messages/:userId1/:userId2', (req, res) => {
   }
 });
 
-// 撤回消息
 app.post('/api/messages/recall', (req, res) => {
   try {
     const { userId, messageId } = req.body;
@@ -213,7 +207,6 @@ app.post('/api/messages/recall', (req, res) => {
   }
 });
 
-// 标记已读
 app.post('/api/messages/read', (req, res) => {
   try {
     const { userId, messageId } = req.body;
@@ -228,7 +221,6 @@ app.post('/api/messages/read', (req, res) => {
   }
 });
 
-// 搜索消息
 app.get('/api/messages/search', (req, res) => {
   try {
     const { userId, keyword } = req.query;
@@ -243,7 +235,6 @@ app.get('/api/messages/search', (req, res) => {
   }
 });
 
-// 删除消息
 app.post('/api/messages/delete', (req, res) => {
   try {
     const { userId, messageId } = req.body;
@@ -259,7 +250,6 @@ app.post('/api/messages/delete', (req, res) => {
   }
 });
 
-// 创建群组
 app.post('/api/groups', (req, res) => {
   try {
     const { name, creatorId, members, isPublic, avatar, announcement } = req.body;
@@ -278,7 +268,6 @@ app.post('/api/groups', (req, res) => {
   }
 });
 
-// 获取用户群组
 app.get('/api/groups/:userId', (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
@@ -289,7 +278,6 @@ app.get('/api/groups/:userId', (req, res) => {
   }
 });
 
-// 添加群组成员
 app.post('/api/groups/:groupId/members', (req, res) => {
   try {
     const groupId = parseInt(req.params.groupId);
@@ -304,7 +292,6 @@ app.post('/api/groups/:groupId/members', (req, res) => {
   }
 });
 
-// 移除群组成员
 app.delete('/api/groups/:groupId/members/:memberId', (req, res) => {
   try {
     const groupId = parseInt(req.params.groupId);
@@ -319,7 +306,6 @@ app.delete('/api/groups/:groupId/members/:memberId', (req, res) => {
   }
 });
 
-// 更新群组
 app.put('/api/groups/:groupId', (req, res) => {
   try {
     const groupId = parseInt(req.params.groupId);
@@ -335,7 +321,6 @@ app.put('/api/groups/:groupId', (req, res) => {
   }
 });
 
-// 解散群组
 app.delete('/api/groups/:groupId', (req, res) => {
   try {
     const groupId = parseInt(req.params.groupId);
@@ -350,7 +335,6 @@ app.delete('/api/groups/:groupId', (req, res) => {
   }
 });
 
-// 获取群组消息
 app.get('/api/groups/:groupId/messages', (req, res) => {
   try {
     const groupId = parseInt(req.params.groupId);
@@ -361,7 +345,6 @@ app.get('/api/groups/:groupId/messages', (req, res) => {
   }
 });
 
-// 搜索用户
 app.get('/api/users/search', (req, res) => {
   try {
     const { keyword } = req.query;
@@ -376,39 +359,66 @@ app.get('/api/users/search', (req, res) => {
   }
 });
 
-// WebSocket连接处理
+function broadcastToUser(targetUserId, eventName, data) {
+  const targetSockets = onlineUsers[targetUserId];
+  if (!targetSockets || targetSockets.length === 0) {
+    console.log('[WS] 目标用户未在线:', targetUserId);
+    return;
+  }
+  targetSockets.forEach(socketId => {
+    socketIo.to(socketId).emit(eventName, data);
+    console.log('[WS] 消息已发送到连接:', socketId);
+  });
+}
+
+function broadcastToAll(eventName, data, excludeUserId = null) {
+  Object.keys(onlineUsers).forEach(userId => {
+    if (userId !== String(excludeUserId)) {
+      broadcastToUser(parseInt(userId), eventName, data);
+    }
+  });
+}
+
 socketIo.on('connection', (socket) => {
   console.log('[WS] 客户端连接:', socket.id);
 
-  // 用户登录：记录在线状态
   socket.on('user_login', (userId) => {
     const uid = parseInt(userId);
-    onlineUsers[uid] = socket.id;
+    if (!onlineUsers[uid]) {
+      onlineUsers[uid] = [];
+    }
+    if (!onlineUsers[uid].includes(socket.id)) {
+      onlineUsers[uid].push(socket.id);
+    }
     socket.userId = uid;
     const user = users[uid];
     if (user) {
       user.status = 'online';
       socket.username = user.username;
     }
-    console.log('[WS] 用户上线:', uid);
-    // 广播用户上线状态
-    socketIo.emit('user_status_changed', { userId: uid, online: true, status: 'online' });
+    console.log('[WS] 用户上线:', uid, 'Socket:', socket.id, '在线连接数:', onlineUsers[uid].length);
+    broadcastToAll('user_status_changed', { userId: uid, online: true, status: 'online' }, uid);
   });
 
-  // 设置在线状态
   socket.on('set_status', (data) => {
-    const user = users[data.userId];
+    let parsedData;
+    try {
+      parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+    } catch (e) {
+      console.error('[WS] set_status 解析失败:', e);
+      return;
+    }
+    const user = users[parsedData.userId];
     if (user) {
-      user.status = data.status;
-      socketIo.emit('user_status_changed', { userId: parseInt(data.userId), online: data.status === 'online', status: data.status });
+      user.status = parsedData.status;
+      const isOnline = parsedData.status === 'online' && onlineUsers[parsedData.userId] && onlineUsers[parsedData.userId].length > 0;
+      broadcastToAll('user_status_changed', { userId: parseInt(parsedData.userId), online: isOnline, status: parsedData.status });
     }
   });
 
-  // 发送私聊消息：统一JSON格式，精准发送给接收方
   socket.on('send_message', (data) => {
     let msgData;
     try {
-      // 兼容字符串和对象格式
       msgData = typeof data === 'string' ? JSON.parse(data) : data;
     } catch (e) {
       console.error('[WS] 消息解析失败:', e);
@@ -416,14 +426,18 @@ socketIo.on('connection', (socket) => {
     }
 
     const { senderId, receiverId, content, type } = msgData;
-    const messageId = messageIdCounter++;
+    if (!content || !receiverId) {
+      console.error('[WS] 消息数据不完整');
+      return;
+    }
 
+    const messageId = messageIdCounter++;
     const message = {
       id: messageId,
       senderId: parseInt(senderId),
-      receiverId: receiverId ? parseInt(receiverId) : null,
+      receiverId: parseInt(receiverId),
       groupId: null,
-      content: content || '',
+      content: content.trim(),
       messageType: type || 'text',
       recalled: false,
       deleted: false,
@@ -431,24 +445,13 @@ socketIo.on('connection', (socket) => {
       createdAt: new Date().toISOString()
     };
 
-    // 存储消息
     messages.push(message);
     console.log('[WS] 私聊消息:', message.id, 'from', message.senderId, 'to', message.receiverId);
 
-    // 精准发送给接收方
-    if (receiverId) {
-      const receiverSocketId = onlineUsers[parseInt(receiverId)];
-      if (receiverSocketId) {
-        socketIo.to(receiverSocketId).emit('receive_message', message);
-        console.log('[WS] 消息已发送给接收方:', receiverSocketId);
-      }
-    }
-
-    // 发送确认给发送者
+    broadcastToUser(message.receiverId, 'receive_message', message);
     socket.emit('message_sent', message);
   });
 
-  // 发送群聊消息：广播给所有群成员，排除发送者
   socket.on('send_group_message', (data) => {
     let msgData;
     try {
@@ -459,14 +462,18 @@ socketIo.on('connection', (socket) => {
     }
 
     const { senderId, groupId, content, type } = msgData;
-    const messageId = messageIdCounter++;
+    if (!content || !groupId) {
+      console.error('[WS] 群消息数据不完整');
+      return;
+    }
 
+    const messageId = messageIdCounter++;
     const message = {
       id: messageId,
       senderId: parseInt(senderId),
       receiverId: null,
       groupId: parseInt(groupId),
-      content: content || '',
+      content: content.trim(),
       messageType: type || 'text',
       recalled: false,
       deleted: false,
@@ -477,15 +484,11 @@ socketIo.on('connection', (socket) => {
     messages.push(message);
     console.log('[WS] 群聊消息:', message.id, 'in group', message.groupId);
 
-    // 广播给群内其他成员
-    const group = groups[parseInt(groupId)];
+    const group = groups[message.groupId];
     if (group) {
-      group.members.forEach(mid => {
-        if (mid !== parseInt(senderId)) {
-          const sid = onlineUsers[mid];
-          if (sid) {
-            socketIo.to(sid).emit('receive_message', message);
-          }
+      group.members.forEach(memberId => {
+        if (memberId !== message.senderId) {
+          broadcastToUser(memberId, 'receive_message', message);
         }
       });
     }
@@ -493,12 +496,12 @@ socketIo.on('connection', (socket) => {
     socket.emit('message_sent', message);
   });
 
-  // 撤回消息
   socket.on('recall_message', (data) => {
     let msgData;
     try {
       msgData = typeof data === 'string' ? JSON.parse(data) : data;
     } catch (e) {
+      console.error('[WS] 撤回消息解析失败:', e);
       return;
     }
 
@@ -506,58 +509,82 @@ socketIo.on('connection', (socket) => {
     const msg = messages.find(m => m.id === messageId);
     if (msg && msg.senderId === parseInt(senderId)) {
       msg.recalled = true;
-      // 通知接收方
-      if (receiverId) {
-        const receiverSocketId = onlineUsers[parseInt(receiverId)];
-        if (receiverSocketId) {
-          socketIo.to(receiverSocketId).emit('message_recalled', { messageId });
-        }
-      }
+      msg.content = '[Message recalled]';
+      broadcastToUser(parseInt(receiverId), 'message_recalled', { messageId });
+      broadcastToUser(parseInt(senderId), 'message_recalled', { messageId });
     }
   });
 
-  // 正在输入
   socket.on('typing', (data) => {
-    const receiverSocketId = onlineUsers[data.receiverId];
-    if (receiverSocketId) {
-      socketIo.to(receiverSocketId).emit('user_typing', { userId: data.userId, isTyping: data.isTyping });
+    let parsedData;
+    try {
+      parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+    } catch (e) {
+      console.error('[WS] typing 解析失败:', e);
+      return;
     }
+    broadcastToUser(parseInt(parsedData.receiverId), 'user_typing', { userId: parsedData.userId, isTyping: parsedData.isTyping });
   });
 
-  // 心跳保活
   socket.on('ping', () => {
     socket.emit('pong');
     console.log('[WS] 心跳响应:', socket.id);
   });
 
-  // 断开连接
   socket.on('disconnect', () => {
+    console.log('[WS] 客户端断开:', socket.id);
     if (socket.userId) {
-      delete onlineUsers[socket.userId];
-      const user = users[socket.userId];
-      if (user) user.status = 'offline';
-      console.log('[WS] 用户下线:', socket.userId);
-      socketIo.emit('user_status_changed', { userId: socket.userId, online: false, status: 'offline' });
+      const uid = socket.userId;
+      if (onlineUsers[uid]) {
+        const index = onlineUsers[uid].indexOf(socket.id);
+        if (index !== -1) {
+          onlineUsers[uid].splice(index, 1);
+        }
+        if (onlineUsers[uid].length === 0) {
+          delete onlineUsers[uid];
+          const user = users[uid];
+          if (user) user.status = 'offline';
+          console.log('[WS] 用户下线:', uid);
+          broadcastToAll('user_status_changed', { userId: uid, online: false, status: 'offline' });
+        } else {
+          console.log('[WS] 用户仍有其他连接在线:', uid, '剩余连接数:', onlineUsers[uid].length);
+        }
+      }
     }
+  });
+
+  socket.on('error', (error) => {
+    console.error('[WS] Socket错误:', error);
   });
 });
 
-// 启动服务器
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+app.use((err, req, res, next) => {
+  console.error('[Error]', err);
+  res.status(500).json({ code: 500, message: 'Internal server error' });
 });
 
-// 静态文件服务：前端打包后的文件
-const distPath = path.join(__dirname, '../frontend/dist');
+const PORT = process.env.PORT || 3000;
+
+const projectRoot = path.resolve(__dirname, '..');
+const distPath = path.join(projectRoot, 'frontend', 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   app.get('*', (req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
+    if (!req.path.startsWith('/api') && !req.path.startsWith('/socket.io')) {
+      res.sendFile(path.join(distPath, 'index.html'));
+    }
   });
-  console.log('Serving frontend from:', distPath);
-  const files = fs.readdirSync(distPath);
-  console.log('Dist files:', files);
-} else {
-  console.log('Frontend dist not found, API only mode');
 }
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log('Health check: /api/health');
+  console.log('Project root:', projectRoot);
+  if (fs.existsSync(distPath)) {
+    console.log('Serving frontend from:', distPath);
+    const files = fs.readdirSync(distPath);
+    console.log('Dist files:', files);
+  } else {
+    console.log('Frontend dist not found, API only mode');
+  }
+});
