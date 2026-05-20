@@ -99,8 +99,17 @@ export function initSocket(userId) {
   })
 
   socket.on('receive_message', (data) => {
-    console.log('[Socket] 收到消息:', data)
-    messageCallbacks.get('receive_message')?.forEach(cb => cb(data))
+    console.log('[Socket] 收到消息:', JSON.stringify(data))
+    const callbacks = messageCallbacks.get('receive_message')
+    console.log('[Socket] receive_message 回调数量:', callbacks ? callbacks.length : 0)
+    callbacks?.forEach(cb => {
+      try {
+        cb(data)
+        console.log('[Socket] 回调执行成功')
+      } catch (e) {
+        console.error('[Socket] 回调执行失败:', e)
+      }
+    })
   })
 
   socket.on('message_sent', (data) => {
@@ -109,8 +118,17 @@ export function initSocket(userId) {
   })
 
   socket.on('user_status_changed', (data) => {
-    console.log('[Socket] 用户状态变化:', data)
-    messageCallbacks.get('user_status_changed')?.forEach(cb => cb(data))
+    console.log('[Socket] 用户状态变化:', JSON.stringify(data))
+    const callbacks = messageCallbacks.get('user_status_changed')
+    console.log('[Socket] user_status_changed 回调数量:', callbacks ? callbacks.length : 0)
+    callbacks?.forEach(cb => {
+      try {
+        cb(data)
+        console.log('[Socket] 用户状态回调执行成功')
+      } catch (e) {
+        console.error('[Socket] 用户状态回调执行失败:', e)
+      }
+    })
   })
 
   socket.on('user_typing', (data) => {
