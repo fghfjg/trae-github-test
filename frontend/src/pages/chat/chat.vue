@@ -47,7 +47,7 @@
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getMessages, recallMessage as apiRecallMessage, deleteMessage as apiDeleteMessage } from '@/utils/api.js'
-import { initSocket, sendMessage as sendSocketMessage, on, off, recallMessage as socketRecallMessage } from '@/utils/socket.js'
+import { initSocket, sendMessage as sendSocketMessage, on, off, recallMessage as socketRecallMessage, getConnectionStatus } from '@/utils/socket.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -129,6 +129,14 @@ const sendMessage = async () => {
   const content = inputText.value.trim()
   if (!content) {
     alert('请输入消息内容')
+    return
+  }
+
+  const connectionStatus = getConnectionStatus()
+  console.log('[Chat] 发送消息, 连接状态:', connectionStatus)
+  
+  if (connectionStatus !== 'connected') {
+    alert('消息发送失败：WebSocket未连接，请检查网络或刷新页面重试')
     return
   }
   

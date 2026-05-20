@@ -7,8 +7,13 @@ let reconnectTimer = null
 let currentUserId = null
 let reconnectAttempts = 0
 const MAX_RECONNECT_ATTEMPTS = 15
+let connectionStatus = 'disconnected'
 
 const messageCallbacks = new Map()
+
+export function getConnectionStatus() {
+  return connectionStatus
+}
 
 export function initSocket(userId) {
   currentUserId = userId
@@ -23,26 +28,30 @@ export function initSocket(userId) {
     reconnectTimer = null
   }
   reconnectAttempts = 0
+  connectionStatus = 'connecting'
 
   const socketUrl = getSocketUrl()
   console.log('[Socket] 正在连接:', socketUrl, 'userId:', userId)
+  console.log('[Socket] 协议:', window.location.protocol === 'https:' ? 'wss' : 'ws')
 
   socket = io(socketUrl, {
     transports: ['websocket', 'polling'],
     reconnection: true,
-    reconnectionDelay: 3000,
+    reconnectionDelay: 1000,
     reconnectionDelayMax: 30000,
     reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
-    timeout: 30000,
+    timeout: 10000,
     forceNew: true,
     autoConnect: true,
     upgrade: true,
     secure: window.location.protocol === 'https:',
-    withCredentials: true
+    withCredentials: false,
+    path: '/socket.io'
   })
 
   socket.on('connect', () => {
     console.log('[Socket] 连接成功, Socket ID:', socket.id)
+    connectionStatus = 'connected'
     reconnectAttempts = 0
     if (currentUserId) {
       socket.emit('user_login', currentUserId)
@@ -53,6 +62,7 @@ export function initSocket(userId) {
 
   socket.on('disconnect', (reason) => {
     console.log('[Socket] 连接断开, 原因:', reason)
+    connectionStatus = 'disconnected'
     stopHeartbeat()
     if (reason === 'io server disconnect') {
       socket.connect()
@@ -61,12 +71,14 @@ export function initSocket(userId) {
 
   socket.on('connect_error', (error) => {
     console.error('[Socket] 连接错误:', error.message)
+    connectionStatus = 'error'
     stopHeartbeat()
     handleReconnect()
   })
 
   socket.on('reconnect', (attemptNumber) => {
     console.log('[Socket] 重连成功, 尝试次数:', attemptNumber)
+    connectionStatus = 'connected'
     reconnectAttempts = 0
     if (currentUserId) {
       socket.emit('user_login', currentUserId)
@@ -77,17 +89,18 @@ export function initSocket(userId) {
 
   socket.on('reconnect_failed', () => {
     console.error('[Socket] 重连失败，已达最大尝试次数')
+    connectionStatus = 'disconnected'
     stopHeartbeat()
   })
 
   socket.on('reconnect_attempt', (attemptNumber) => {
     console.log('[Socket] 正在重连, 尝试次数:', attemptNumber)
+    connectionStatus = 'connecting'
     reconnectAttempts = attemptNumber
   })
 
   socket.on('receive_message', (data) => {
     console.log('[Socket] 收到消息:', data)
-    messageCallbacks.get('chat')?.forEach(cb => cb(data))
     messageCallbacks.get('receive_message')?.forEach(cb => cb(data))
   })
 
@@ -113,7 +126,6 @@ export function initSocket(userId) {
 
   socket.on('pong', () => {
     console.log('[Socket] 收到心跳响应')
-    messageCallbacks.get('heartbeat')?.forEach(cb => cb())
   })
 
   socket.on('error', (error) => {
@@ -177,6 +189,7 @@ export function disconnectSocket() {
   currentUserId = null
   reconnectAttempts = 0
   messageCallbacks.clear()
+  connectionStatus = 'disconnected'
   console.log('[Socket] 已断开连接')
 }
 
