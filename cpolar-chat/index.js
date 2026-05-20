@@ -18,7 +18,9 @@ const socketIo = new Server(server, {
   transports: ['websocket', 'polling'],
   pingTimeout: 120000,
   pingInterval: 30000,
-  upgradeTimeout: 10000
+  upgradeTimeout: 10000,
+  path: '/socket.io',
+  allowEIO3: true
 });
 
 app.use(cors({
@@ -482,7 +484,7 @@ socketIo.on('connection', (socket) => {
     };
 
     messages.push(message);
-    console.log('[WS] 群聊消息:', message.id, 'in group', message.groupId);
+    console.log('[WS] 群消息:', message.id, 'from', message.senderId, 'to group', message.groupId);
 
     const group = groups[message.groupId];
     if (group) {
@@ -492,26 +494,27 @@ socketIo.on('connection', (socket) => {
         }
       });
     }
-
     socket.emit('message_sent', message);
   });
 
   socket.on('recall_message', (data) => {
-    let msgData;
+    let parsedData;
     try {
-      msgData = typeof data === 'string' ? JSON.parse(data) : data;
+      parsedData = typeof data === 'string' ? JSON.parse(data) : data;
     } catch (e) {
       console.error('[WS] 撤回消息解析失败:', e);
       return;
     }
 
-    const { messageId, senderId, receiverId } = msgData;
+    const { messageId, senderId, receiverId } = parsedData;
     const msg = messages.find(m => m.id === messageId);
-    if (msg && msg.senderId === parseInt(senderId)) {
+    if (msg) {
       msg.recalled = true;
       msg.content = '[Message recalled]';
-      broadcastToUser(parseInt(receiverId), 'message_recalled', { messageId });
-      broadcastToUser(parseInt(senderId), 'message_recalled', { messageId });
+      console.log('[WS] 消息已撤回:', messageId);
+
+      broadcastToUser(receiverId, 'message_recalled', { messageId });
+      socket.emit('message_recalled', { messageId });
     }
   });
 
@@ -520,10 +523,12 @@ socketIo.on('connection', (socket) => {
     try {
       parsedData = typeof data === 'string' ? JSON.parse(data) : data;
     } catch (e) {
-      console.error('[WS] typing 解析失败:', e);
+      console.error('[WS] 输入状态解析失败:', e);
       return;
     }
-    broadcastToUser(parseInt(parsedData.receiverId), 'user_typing', { userId: parsedData.userId, isTyping: parsedData.isTyping });
+
+    const { senderId, receiverId } = parsedData;
+    broadcastToUser(receiverId, 'user_typing', { userId: senderId });
   });
 
   socket.on('ping', () => {
@@ -547,20 +552,11 @@ socketIo.on('connection', (socket) => {
           console.log('[WS] 用户下线:', uid);
           broadcastToAll('user_status_changed', { userId: uid, online: false, status: 'offline' });
         } else {
-          console.log('[WS] 用户仍有其他连接在线:', uid, '剩余连接数:', onlineUsers[uid].length);
+          console.log('[WS] 用户还有其他连接在线:', uid, '剩余连接数:', onlineUsers[uid].length);
         }
       }
     }
   });
-
-  socket.on('error', (error) => {
-    console.error('[WS] Socket错误:', error);
-  });
-});
-
-app.use((err, req, res, next) => {
-  console.error('[Error]', err);
-  res.status(500).json({ code: 500, message: 'Internal server error' });
 });
 
 const PORT = process.env.PORT || 3000;
@@ -569,10 +565,9 @@ const projectRoot = path.resolve(__dirname, '..');
 const distPath = path.join(projectRoot, 'frontend', 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
+
   app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api') && !req.path.startsWith('/socket.io')) {
-      res.sendFile(path.join(distPath, 'index.html'));
-    }
+    res.sendFile(path.join(distPath, 'index.html'));
   });
 }
 
@@ -584,7 +579,5 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log('Serving frontend from:', distPath);
     const files = fs.readdirSync(distPath);
     console.log('Dist files:', files);
-  } else {
-    console.log('Frontend dist not found, API only mode');
   }
 });

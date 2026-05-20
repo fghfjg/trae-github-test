@@ -41,11 +41,10 @@ export function initSocket(userId) {
     reconnectionDelayMax: 30000,
     reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
     timeout: 10000,
-    forceNew: true,
     autoConnect: true,
     upgrade: true,
     secure: window.location.protocol === 'https:',
-    withCredentials: false,
+    withCredentials: true,
     path: '/socket.io'
   })
 
