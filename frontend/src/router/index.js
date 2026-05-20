@@ -42,16 +42,14 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory('/app/'),
   routes
 })
 
-// 路由守卫：检查登录状态
 router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth) {
     const userId = localStorage.getItem('userId')
     const token = localStorage.getItem('token')
-    // 如果没有userId或token，视为未登录
     if (!userId || !token) {
       console.log('[Router] 未登录，跳转至登录页')
       next('/login')
@@ -59,7 +57,6 @@ router.beforeEach((to, from, next) => {
       next()
     }
   } else {
-    // 如果已登录用户访问登录/注册页，自动跳转至好友页
     const userId = localStorage.getItem('userId')
     const token = localStorage.getItem('token')
     if ((to.path === '/login' || to.path === '/register') && userId && token) {
