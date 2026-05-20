@@ -44,10 +44,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getMessages, recallMessage as apiRecallMessage, deleteMessage as apiDeleteMessage } from '@/utils/api.js'
-import { sendMessage, on, off, recallMessage } from '@/utils/socket.js'
+import { initSocket, sendMessage as sendSocketMessage, on, off, recallMessage } from '@/utils/socket.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -68,17 +68,22 @@ onMounted(() => {
   friendName.value = route.query.friendName || '好友'
   friendOnline.value = route.query.online === 'true'
   
+  if (userId.value) {
+    initSocket(userId.value)
+    console.log('[Chat] WebSocket 已初始化, userId:', userId.value)
+  }
+  
   loadMessages()
   
-  on('chat', handleNewMessage)
+  on('receive_message', handleNewMessage)
+  on('message_recalled', handleMessageRecalled)
   on('user_status_changed', handleUserStatusChanged)
-  on('heartbeat', handleHeartbeat)
 })
 
 onUnmounted(() => {
-  off('chat', handleNewMessage)
+  off('receive_message', handleNewMessage)
+  off('message_recalled', handleMessageRecalled)
   off('user_status_changed', handleUserStatusChanged)
-  off('heartbeat', handleHeartbeat)
 })
 
 const loadMessages = async () => {
@@ -105,15 +110,19 @@ const handleNewMessage = (data) => {
   }
 }
 
+const handleMessageRecalled = (data) => {
+  console.log('[Chat] 消息撤回:', data)
+  const msg = messages.value.find(m => m.id === data.messageId)
+  if (msg) {
+    msg.recalled = true
+  }
+}
+
 const handleUserStatusChanged = (data) => {
   console.log('[Chat] 用户状态变化:', data)
   if (data.userId === friendId.value) {
     friendOnline.value = data.online
   }
-}
-
-const handleHeartbeat = () => {
-  console.log('[Chat] 心跳响应')
 }
 
 const sendMessage = async () => {
@@ -133,21 +142,20 @@ const sendMessage = async () => {
     deleted: false,
     messageType: 'text'
   }
-  
-  const success = sendMessage(userId.value, friendId.value, content, 'text')
-  
-  if (!success) {
-    console.error('[Chat] 发送消息失败，Socket未连接')
-    alert('发送失败，请检查网络连接')
-    return
-  }
-  
   messages.value.push(tempMsg)
   inputText.value = ''
   showEmoji.value = false
   scrollToBottom()
-  
-  console.log('[Chat] 消息已发送到服务器')
+
+  const success = sendSocketMessage(userId.value, friendId.value, content, 'text')
+  if (!success) {
+    console.error('[Chat] 发送消息失败，Socket未连接')
+    alert('发送失败，请检查网络连接')
+    const index = messages.value.findIndex(m => m.id === tempMsg.id)
+    if (index !== -1) {
+      messages.value.splice(index, 1)
+    }
+  }
 }
 
 const recallMessage = async (msg) => {
