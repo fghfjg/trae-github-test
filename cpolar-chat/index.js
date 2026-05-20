@@ -382,8 +382,14 @@ function broadcastToAll(eventName, data, excludeUserId = null) {
   });
 }
 
+app.get('/ws', (req, res) => {
+  console.log('[WS] /ws 路径访问，查询参数:', req.query);
+  res.status(200).json({ code: 200, message: 'WebSocket endpoint available', userId: req.query.userId });
+});
+
 socketIo.on('connection', (socket) => {
   console.log('[WS] 客户端连接:', socket.id, '时间:', new Date().toISOString());
+  console.log('[WS] 握手查询参数:', socket.handshake.query);
 
   socket.on('user_login', (userId) => {
     const uid = parseInt(userId);
@@ -583,6 +589,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[Server] 服务启动成功，端口: ${PORT}`);
   console.log('[Server] Health check: /api/health');
   console.log('[Server] WebSocket path: /socket.io');
+  console.log('[Server] WebSocket endpoint: /ws');
   console.log('[Server] 项目根目录:', projectRoot);
   if (fs.existsSync(distPath)) {
     console.log('[Server] 前端静态资源目录:', distPath);
