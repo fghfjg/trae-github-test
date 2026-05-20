@@ -33,10 +33,10 @@ export function initSocket(userId) {
 
   let socketUrl = ''
   if (window.location.host.includes('railway.app')) {
-    socketUrl = 'wss://trae-github-test-production.up.railway.app'
+    socketUrl = 'wss://trae-github-test-production.up.railway.app/ws?userId=' + userId
     console.log('[Socket] 生产环境，使用固定地址:', socketUrl)
   } else {
-    socketUrl = getSocketUrl()
+    socketUrl = getSocketUrl() + '/ws?userId=' + userId
     console.log('[Socket] 开发环境，使用配置地址:', socketUrl)
   }
 
