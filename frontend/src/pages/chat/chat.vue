@@ -22,7 +22,7 @@
           <div v-else class="msg-content">{{ msg.content }}</div>
           <div class="msg-footer">
             <span class="msg-time">{{ formatTime(msg.createdAt) }}</span>
-            <button v-if="msg.senderId === userId && !msg.recalled && !msg.deleted" class="msg-action" @click="recallMessage(msg)">撤回</button>
+            <button v-if="msg.senderId === userId && !msg.recalled && !msg.deleted" class="msg-action" @click="handleRecall(msg)">撤回</button>
             <button v-if="!msg.deleted" class="msg-action" @click="deleteMessage(msg)">删除</button>
           </div>
         </div>
@@ -47,7 +47,7 @@
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getMessages, recallMessage as apiRecallMessage, deleteMessage as apiDeleteMessage } from '@/utils/api.js'
-import { initSocket, sendMessage as sendSocketMessage, on, off, recallMessage } from '@/utils/socket.js'
+import { initSocket, sendMessage as sendSocketMessage, on, off, recallMessage as socketRecallMessage } from '@/utils/socket.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -158,12 +158,12 @@ const sendMessage = async () => {
   }
 }
 
-const recallMessage = async (msg) => {
+const handleRecall = async (msg) => {
   try {
     const res = await apiRecallMessage(userId.value, msg.id)
     if (res.code === 200) {
       msg.recalled = true
-      recallMessage(msg.id, userId.value, friendId.value)
+      socketRecallMessage(msg.id, userId.value, friendId.value)
     }
   } catch (error) {
     alert(error.message || '撤回消息失败')
