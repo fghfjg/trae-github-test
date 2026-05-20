@@ -63,14 +63,21 @@ const showEmoji = ref(false)
 const emojis = ['😀','😂','🥰','😎','🤔','😢','👍','❤️','🔥','🎉','👋','🙏','💪','✨','🌟','💯','🎵','📷','🍕','☕']
 
 onMounted(() => {
+  console.log('[DEBUG] chat.vue挂载开始')
+  
   userId.value = parseInt(localStorage.getItem('userId'))
   friendId.value = parseInt(route.query.friendId)
   friendName.value = route.query.friendName || '好友'
   friendOnline.value = route.query.online === 'true'
   
+  console.log('[DEBUG] chat.vue挂载，userId:', userId.value, 'friendId:', friendId.value)
+  
   if (userId.value) {
+    console.log('[DEBUG] chat.vue挂载，调用initSocket')
     initSocket(userId.value)
-    console.log('[Chat] WebSocket 已初始化, userId:', userId.value)
+    console.log('[DEBUG] initSocket调用完成')
+  } else {
+    console.error('[DEBUG] userId为空，无法初始化Socket')
   }
   
   loadMessages()
@@ -78,9 +85,12 @@ onMounted(() => {
   on('receive_message', handleNewMessage)
   on('message_recalled', handleMessageRecalled)
   on('user_status_changed', handleUserStatusChanged)
+  
+  console.log('[DEBUG] chat.vue挂载完成，事件监听已注册')
 })
 
 onUnmounted(() => {
+  console.log('[DEBUG] chat.vue卸载，移除事件监听')
   off('receive_message', handleNewMessage)
   off('message_recalled', handleMessageRecalled)
   off('user_status_changed', handleUserStatusChanged)
@@ -88,40 +98,45 @@ onUnmounted(() => {
 
 const loadMessages = async () => {
   try {
+    console.log('[DEBUG] 加载消息，userId:', userId.value, 'friendId:', friendId.value)
     const res = await getMessages(userId.value, friendId.value)
     if (res.code === 200) {
       messages.value = res.data.messages || []
+      console.log('[DEBUG] 消息加载成功，数量:', messages.value.length)
       scrollToBottom()
     }
   } catch (error) {
-    console.error('[Chat] 加载消息失败:', error)
+    console.error('[DEBUG] 加载消息失败:', error)
   }
 }
 
 const handleNewMessage = (data) => {
-  console.log('[Chat] 收到新消息:', data)
+  console.log('[DEBUG] 收到新消息:', JSON.stringify(data))
   if ((data.senderId === friendId.value && data.receiverId === userId.value) ||
       (data.senderId === userId.value && data.receiverId === friendId.value)) {
     const existingMsg = messages.value.find(m => m.id === data.id)
     if (!existingMsg) {
       messages.value.push(data)
       scrollToBottom()
+      console.log('[DEBUG] 消息已添加到列表')
     }
   }
 }
 
 const handleMessageRecalled = (data) => {
-  console.log('[Chat] 消息撤回:', data)
+  console.log('[DEBUG] 消息撤回:', data)
   const msg = messages.value.find(m => m.id === data.messageId)
   if (msg) {
     msg.recalled = true
+    console.log('[DEBUG] 消息已标记为撤回')
   }
 }
 
 const handleUserStatusChanged = (data) => {
-  console.log('[Chat] 用户状态变化:', data)
+  console.log('[DEBUG] 用户状态变化:', JSON.stringify(data))
   if (data.userId === friendId.value) {
     friendOnline.value = data.online
+    console.log('[DEBUG] 好友状态更新为:', friendOnline.value ? '在线' : '离线')
   }
 }
 
@@ -133,7 +148,7 @@ const sendMessage = async () => {
   }
 
   const connectionStatus = getConnectionStatus()
-  console.log('[Chat] 发送消息, 连接状态:', connectionStatus)
+  console.log('[DEBUG] 发送消息，连接状态:', connectionStatus)
   
   if (connectionStatus !== 'connected') {
     alert('消息发送失败：WebSocket未连接，请检查网络或刷新页面重试')
@@ -150,6 +165,9 @@ const sendMessage = async () => {
     deleted: false,
     messageType: 'text'
   }
+  
+  console.log('[DEBUG] 发送消息:', JSON.stringify(tempMsg))
+  
   messages.value.push(tempMsg)
   inputText.value = ''
   showEmoji.value = false
@@ -157,34 +175,42 @@ const sendMessage = async () => {
 
   const success = sendSocketMessage(userId.value, friendId.value, content, 'text')
   if (!success) {
-    console.error('[Chat] 发送消息失败，Socket未连接')
+    console.error('[DEBUG] 发送消息失败，Socket未连接')
     alert('发送失败，请检查网络连接')
     const index = messages.value.findIndex(m => m.id === tempMsg.id)
     if (index !== -1) {
       messages.value.splice(index, 1)
     }
+  } else {
+    console.log('[DEBUG] 消息发送成功')
   }
 }
 
 const handleRecall = async (msg) => {
+  console.log('[DEBUG] 执行撤回，messageId:', msg.id)
   try {
     const res = await apiRecallMessage(userId.value, msg.id)
     if (res.code === 200) {
       msg.recalled = true
       socketRecallMessage(msg.id, userId.value, friendId.value)
+      console.log('[DEBUG] 撤回成功')
     }
   } catch (error) {
+    console.error('[DEBUG] 撤回失败:', error)
     alert(error.message || '撤回消息失败')
   }
 }
 
 const deleteMessage = async (msg) => {
+  console.log('[DEBUG] 执行删除，messageId:', msg.id)
   try {
     const res = await apiDeleteMessage(userId.value, msg.id)
     if (res.code === 200) {
       msg.deleted = true
+      console.log('[DEBUG] 删除成功')
     }
   } catch (error) {
+    console.error('[DEBUG] 删除失败:', error)
     alert(error.message || '删除消息失败')
   }
 }

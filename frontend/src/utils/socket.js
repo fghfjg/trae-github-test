@@ -16,6 +16,7 @@ export function getConnectionStatus() {
 }
 
 export function initSocket(userId) {
+  console.log('[Socket] 初始化开始，userId:', userId)
   currentUserId = userId
 
   if (socket) {
@@ -30,9 +31,14 @@ export function initSocket(userId) {
   reconnectAttempts = 0
   connectionStatus = 'connecting'
 
-  const socketUrl = getSocketUrl()
-  console.log('[Socket] 正在连接:', socketUrl, 'userId:', userId)
-  console.log('[Socket] 协议:', window.location.protocol === 'https:' ? 'wss' : 'ws')
+  let socketUrl = ''
+  if (window.location.host.includes('railway.app')) {
+    socketUrl = 'wss://trae-github-test-production.up.railway.app'
+    console.log('[Socket] 生产环境，使用固定地址:', socketUrl)
+  } else {
+    socketUrl = getSocketUrl()
+    console.log('[Socket] 开发环境，使用配置地址:', socketUrl)
+  }
 
   socket = io(socketUrl, {
     transports: ['websocket', 'polling'],
@@ -49,7 +55,8 @@ export function initSocket(userId) {
   })
 
   socket.on('connect', () => {
-    console.log('[Socket] 连接成功, Socket ID:', socket.id)
+    console.log('[Socket] 连接成功，Socket ID:', socket.id)
+    console.log('[Socket] readyState: connected')
     connectionStatus = 'connected'
     reconnectAttempts = 0
     if (currentUserId) {
@@ -69,7 +76,7 @@ export function initSocket(userId) {
   })
 
   socket.on('connect_error', (error) => {
-    console.error('[Socket] 连接错误:', error.message)
+    console.error('[Socket] 连接失败:', error)
     connectionStatus = 'error'
     stopHeartbeat()
     handleReconnect()

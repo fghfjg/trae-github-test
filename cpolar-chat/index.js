@@ -369,11 +369,12 @@ function broadcastToUser(targetUserId, eventName, data) {
   }
   targetSockets.forEach(socketId => {
     socketIo.to(socketId).emit(eventName, data);
-    console.log('[WS] 消息已发送到连接:', socketId);
+    console.log('[WS] 消息已发送到连接:', socketId, '事件:', eventName);
   });
 }
 
 function broadcastToAll(eventName, data, excludeUserId = null) {
+  console.log('[WS] 广播事件:', eventName, '排除用户:', excludeUserId);
   Object.keys(onlineUsers).forEach(userId => {
     if (userId !== String(excludeUserId)) {
       broadcastToUser(parseInt(userId), eventName, data);
@@ -382,10 +383,12 @@ function broadcastToAll(eventName, data, excludeUserId = null) {
 }
 
 socketIo.on('connection', (socket) => {
-  console.log('[WS] 客户端连接:', socket.id);
+  console.log('[WS] 客户端连接:', socket.id, '时间:', new Date().toISOString());
 
   socket.on('user_login', (userId) => {
     const uid = parseInt(userId);
+    console.log('[WS] 用户登录请求:', uid, 'Socket:', socket.id);
+    
     if (!onlineUsers[uid]) {
       onlineUsers[uid] = [];
     }
@@ -398,7 +401,7 @@ socketIo.on('connection', (socket) => {
       user.status = 'online';
       socket.username = user.username;
     }
-    console.log('[WS] 用户上线:', uid, 'Socket:', socket.id, '在线连接数:', onlineUsers[uid].length);
+    console.log('[WS] 用户上线成功:', uid, 'Socket:', socket.id, '在线连接数:', onlineUsers[uid].length);
     broadcastToAll('user_status_changed', { userId: uid, online: true, status: 'online' }, uid);
   });
 
@@ -415,6 +418,7 @@ socketIo.on('connection', (socket) => {
       user.status = parsedData.status;
       const isOnline = parsedData.status === 'online' && onlineUsers[parsedData.userId] && onlineUsers[parsedData.userId].length > 0;
       broadcastToAll('user_status_changed', { userId: parseInt(parsedData.userId), online: isOnline, status: parsedData.status });
+      console.log('[WS] 用户状态更新:', parsedData.userId, '状态:', parsedData.status, '在线:', isOnline);
     }
   });
 
@@ -429,7 +433,7 @@ socketIo.on('connection', (socket) => {
 
     const { senderId, receiverId, content, type } = msgData;
     if (!content || !receiverId) {
-      console.error('[WS] 消息数据不完整');
+      console.error('[WS] 消息数据不完整:', msgData);
       return;
     }
 
@@ -448,10 +452,11 @@ socketIo.on('connection', (socket) => {
     };
 
     messages.push(message);
-    console.log('[WS] 私聊消息:', message.id, 'from', message.senderId, 'to', message.receiverId);
+    console.log('[WS] 私聊消息创建:', message.id, 'from:', message.senderId, 'to:', message.receiverId);
 
     broadcastToUser(message.receiverId, 'receive_message', message);
     socket.emit('message_sent', message);
+    console.log('[WS] 私聊消息已广播:', message.id);
   });
 
   socket.on('send_group_message', (data) => {
@@ -465,7 +470,7 @@ socketIo.on('connection', (socket) => {
 
     const { senderId, groupId, content, type } = msgData;
     if (!content || !groupId) {
-      console.error('[WS] 群消息数据不完整');
+      console.error('[WS] 群消息数据不完整:', msgData);
       return;
     }
 
@@ -484,7 +489,7 @@ socketIo.on('connection', (socket) => {
     };
 
     messages.push(message);
-    console.log('[WS] 群消息:', message.id, 'from', message.senderId, 'to group', message.groupId);
+    console.log('[WS] 群消息创建:', message.id, 'from:', message.senderId, 'to group:', message.groupId);
 
     const group = groups[message.groupId];
     if (group) {
@@ -495,6 +500,7 @@ socketIo.on('connection', (socket) => {
       });
     }
     socket.emit('message_sent', message);
+    console.log('[WS] 群消息已广播:', message.id);
   });
 
   socket.on('recall_message', (data) => {
@@ -515,6 +521,7 @@ socketIo.on('connection', (socket) => {
 
       broadcastToUser(receiverId, 'message_recalled', { messageId });
       socket.emit('message_recalled', { messageId });
+      console.log('[WS] 撤回消息已广播:', messageId);
     }
   });
 
@@ -529,6 +536,7 @@ socketIo.on('connection', (socket) => {
 
     const { senderId, receiverId } = parsedData;
     broadcastToUser(receiverId, 'user_typing', { userId: senderId });
+    console.log('[WS] 输入状态广播:', senderId, '->', receiverId);
   });
 
   socket.on('ping', () => {
@@ -572,12 +580,13 @@ if (fs.existsSync(distPath)) {
 }
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log('Health check: /api/health');
-  console.log('Project root:', projectRoot);
+  console.log(`[Server] 服务启动成功，端口: ${PORT}`);
+  console.log('[Server] Health check: /api/health');
+  console.log('[Server] WebSocket path: /socket.io');
+  console.log('[Server] 项目根目录:', projectRoot);
   if (fs.existsSync(distPath)) {
-    console.log('Serving frontend from:', distPath);
+    console.log('[Server] 前端静态资源目录:', distPath);
     const files = fs.readdirSync(distPath);
-    console.log('Dist files:', files);
+    console.log('[Server] 静态资源文件:', files);
   }
 });
