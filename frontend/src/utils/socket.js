@@ -31,16 +31,16 @@ export function initSocket(userId) {
   reconnectAttempts = 0
   connectionStatus = 'connecting'
 
-  let socketUrl = ''
+  let baseUrl = ''
   if (window.location.host.includes('railway.app')) {
-    socketUrl = 'wss://trae-github-test-production.up.railway.app/ws?userId=' + userId
-    console.log('[Socket] 生产环境，使用固定地址:', socketUrl)
+    baseUrl = 'wss://trae-github-test-production.up.railway.app'
+    console.log('[Socket] 生产环境，使用固定地址:', baseUrl)
   } else {
-    socketUrl = getSocketUrl() + '/ws?userId=' + userId
-    console.log('[Socket] 开发环境，使用配置地址:', socketUrl)
+    baseUrl = getSocketUrl()
+    console.log('[Socket] 开发环境，使用配置地址:', baseUrl)
   }
 
-  socket = io(socketUrl, {
+  socket = io(baseUrl, {
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionDelay: 1000,
@@ -51,8 +51,13 @@ export function initSocket(userId) {
     upgrade: true,
     secure: window.location.protocol === 'https:',
     withCredentials: true,
-    path: '/socket.io'
+    path: '/socket.io',
+    query: {
+      userId: userId
+    }
   })
+
+  console.log('[Socket] 配置完成，即将发起连接...')
 
   socket.on('connect', () => {
     console.log('[Socket] 连接成功，Socket ID:', socket.id)
