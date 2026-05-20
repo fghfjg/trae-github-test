@@ -5,41 +5,45 @@ let socket = null
 let heartbeatTimer = null
 let reconnectTimer = null
 let currentUserId = null
+let reconnectAttempts = 0
+const MAX_RECONNECT_ATTEMPTS = 15
 
-// 初始化WebSocket连接
+const messageCallbacks = new Map()
+
 export function initSocket(userId) {
   currentUserId = userId
 
-  // 如果已有连接，先断开
   if (socket) {
     socket.disconnect()
     socket = null
   }
 
-  // 清除重连定时器
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
   }
+  reconnectAttempts = 0
 
   const socketUrl = getSocketUrl()
-  console.log('[Socket] 正在连接:', socketUrl)
+  console.log('[Socket] 正在连接:', socketUrl, 'userId:', userId)
 
   socket = io(socketUrl, {
     transports: ['websocket', 'polling'],
     reconnection: true,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    reconnectionAttempts: 999,
-    timeout: 20000,
+    reconnectionDelay: 3000,
+    reconnectionDelayMax: 30000,
+    reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
+    timeout: 30000,
     forceNew: true,
-    autoConnect: true
+    autoConnect: true,
+    upgrade: true,
+    secure: window.location.protocol === 'https:',
+    withCredentials: true
   })
 
-  // 连接成功
   socket.on('connect', () => {
     console.log('[Socket] 连接成功, Socket ID:', socket.id)
-    // 登录用户
+    reconnectAttempts = 0
     if (currentUserId) {
       socket.emit('user_login', currentUserId)
       console.log('[Socket] 已发送用户登录, userId:', currentUserId)
@@ -47,21 +51,23 @@ export function initSocket(userId) {
     startHeartbeat()
   })
 
-  // 连接断开
   socket.on('disconnect', (reason) => {
     console.log('[Socket] 连接断开, 原因:', reason)
     stopHeartbeat()
+    if (reason === 'io server disconnect') {
+      socket.connect()
+    }
   })
 
-  // 连接错误
   socket.on('connect_error', (error) => {
     console.error('[Socket] 连接错误:', error.message)
     stopHeartbeat()
+    handleReconnect()
   })
 
-  // 重连成功
   socket.on('reconnect', (attemptNumber) => {
     console.log('[Socket] 重连成功, 尝试次数:', attemptNumber)
+    reconnectAttempts = 0
     if (currentUserId) {
       socket.emit('user_login', currentUserId)
       console.log('[Socket] 重连后已发送用户登录, userId:', currentUserId)
@@ -69,37 +75,54 @@ export function initSocket(userId) {
     startHeartbeat()
   })
 
-  // 重连失败
   socket.on('reconnect_failed', () => {
-    console.error('[Socket] 重连失败')
+    console.error('[Socket] 重连失败，已达最大尝试次数')
     stopHeartbeat()
   })
 
-  // 监听服务器消息
+  socket.on('reconnect_attempt', (attemptNumber) => {
+    console.log('[Socket] 正在重连, 尝试次数:', attemptNumber)
+    reconnectAttempts = attemptNumber
+  })
+
   socket.on('receive_message', (data) => {
     console.log('[Socket] 收到消息:', data)
+    messageCallbacks.get('chat')?.forEach(cb => cb(data))
+    messageCallbacks.get('receive_message')?.forEach(cb => cb(data))
   })
 
   socket.on('message_sent', (data) => {
     console.log('[Socket] 消息已发送确认:', data)
+    messageCallbacks.get('message_sent')?.forEach(cb => cb(data))
   })
 
   socket.on('user_status_changed', (data) => {
     console.log('[Socket] 用户状态变化:', data)
+    messageCallbacks.get('user_status_changed')?.forEach(cb => cb(data))
   })
 
   socket.on('user_typing', (data) => {
     console.log('[Socket] 用户正在输入:', data)
+    messageCallbacks.get('user_typing')?.forEach(cb => cb(data))
   })
 
   socket.on('message_recalled', (data) => {
     console.log('[Socket] 消息已撤回:', data)
+    messageCallbacks.get('message_recalled')?.forEach(cb => cb(data))
+  })
+
+  socket.on('pong', () => {
+    console.log('[Socket] 收到心跳响应')
+    messageCallbacks.get('heartbeat')?.forEach(cb => cb())
+  })
+
+  socket.on('error', (error) => {
+    console.error('[Socket] Socket错误:', error)
   })
 
   return socket
 }
 
-// 启动心跳保活
 function startHeartbeat() {
   stopHeartbeat()
   heartbeatTimer = setInterval(() => {
@@ -107,10 +130,9 @@ function startHeartbeat() {
       socket.emit('ping')
       console.log('[Socket] 发送心跳包')
     }
-  }, 25000)
+  }, 30000)
 }
 
-// 停止心跳
 function stopHeartbeat() {
   if (heartbeatTimer) {
     clearInterval(heartbeatTimer)
@@ -118,12 +140,30 @@ function stopHeartbeat() {
   }
 }
 
-// 获取当前Socket实例
+function handleReconnect() {
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    console.error('[Socket] 重连失败，已达最大尝试次数')
+    return
+  }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+  }
+  const delay = Math.min(3000 * Math.pow(2, reconnectAttempts), 30000)
+  reconnectTimer = setTimeout(() => {
+    console.log('[Socket] 尝试重连...')
+    if (socket) {
+      socket.connect()
+    } else if (currentUserId) {
+      initSocket(currentUserId)
+    }
+  }, delay)
+  reconnectAttempts++
+}
+
 export function getSocket() {
   return socket
 }
 
-// 断开连接
 export function disconnectSocket() {
   stopHeartbeat()
   if (reconnectTimer) {
@@ -135,11 +175,87 @@ export function disconnectSocket() {
     socket = null
   }
   currentUserId = null
+  reconnectAttempts = 0
+  messageCallbacks.clear()
   console.log('[Socket] 已断开连接')
 }
 
-// 手动重连
 export function reconnectSocket(userId) {
   console.log('[Socket] 手动重连, userId:', userId)
   return initSocket(userId)
+}
+
+export function sendMessage(senderId, receiverId, content, type = 'text') {
+  if (!socket || !socket.connected) {
+    console.error('[Socket] 发送消息失败：Socket未连接')
+    return false
+  }
+  try {
+    const messageData = JSON.stringify({
+      senderId,
+      receiverId,
+      content: content.trim(),
+      type
+    })
+    socket.emit('send_message', messageData)
+    console.log('[Socket] 发送消息:', messageData)
+    return true
+  } catch (error) {
+    console.error('[Socket] 发送消息失败:', error)
+    return false
+  }
+}
+
+export function sendGroupMessage(senderId, groupId, content, type = 'text') {
+  if (!socket || !socket.connected) {
+    console.error('[Socket] 发送群消息失败：Socket未连接')
+    return false
+  }
+  try {
+    const messageData = JSON.stringify({
+      senderId,
+      groupId,
+      content: content.trim(),
+      type
+    })
+    socket.emit('send_group_message', messageData)
+    console.log('[Socket] 发送群消息:', messageData)
+    return true
+  } catch (error) {
+    console.error('[Socket] 发送群消息失败:', error)
+    return false
+  }
+}
+
+export function recallMessage(messageId, senderId, receiverId) {
+  if (!socket || !socket.connected) {
+    console.error('[Socket] 撤回消息失败：Socket未连接')
+    return false
+  }
+  try {
+    const data = JSON.stringify({ messageId, senderId, receiverId })
+    socket.emit('recall_message', data)
+    console.log('[Socket] 撤回消息:', data)
+    return true
+  } catch (error) {
+    console.error('[Socket] 撤回消息失败:', error)
+    return false
+  }
+}
+
+export function on(eventName, callback) {
+  if (!messageCallbacks.has(eventName)) {
+    messageCallbacks.set(eventName, [])
+  }
+  messageCallbacks.get(eventName).push(callback)
+}
+
+export function off(eventName, callback) {
+  const callbacks = messageCallbacks.get(eventName)
+  if (callbacks) {
+    const index = callbacks.indexOf(callback)
+    if (index !== -1) {
+      callbacks.splice(index, 1)
+    }
+  }
 }
